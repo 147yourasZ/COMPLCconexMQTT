@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+
+# Logs y temporales
+*.log
+*.tmp
+*.bak
+~$*
+
+# Credenciales y secretos locales
+.env
+.env.*
+*.pem
+*.key
+*passwd*
+*credentials*
+
+# IDE / Sistema
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini

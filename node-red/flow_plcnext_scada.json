@@ -1,0 +1,1043 @@
+[
+    {
+        "id": "tab_opcua_proc",
+        "type": "tab",
+        "label": "1. OPC UA & Procesamiento",
+        "disabled": false,
+        "info": "Módulo 1 (OPC UA) y Módulo 2 (Procesamiento, normalización JSON, buffer offline)."
+    },
+    {
+        "id": "tab_mqtt_ctrl",
+        "type": "tab",
+        "label": "2. MQTT & Control Remoto",
+        "disabled": false,
+        "info": "Módulo 3 (Validación de comandos, anti-duplicados, expiración) y Módulo 4 (MQTT)."
+    },
+    {
+        "id": "tab_scada_ui",
+        "type": "tab",
+        "label": "3. Dashboard SCADA",
+        "disabled": false,
+        "info": "Interfaz HMI/SCADA con confirmación real de ejecución."
+    },
+    {
+        "id": "opcua_endpoint_plc",
+        "type": "OpcUa-Endpoint",
+        "endpoint": "opc.tcp://192.168.1.10:4840",
+        "secpol": "None",
+        "secmode": "None",
+        "none": true,
+        "login": false,
+        "usercert": false,
+        "usercertificate": "",
+        "userprivatekey": ""
+    },
+    {
+        "id": "mqtt_broker_local",
+        "type": "mqtt-broker",
+        "name": "Mosquitto Local (127.0.0.1)",
+        "broker": "127.0.0.1",
+        "port": "1883",
+        "clientid": "nodered_plcnext_gw",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": "4",
+        "keepalive": "30",
+        "cleansession": true,
+        "autoUnsubscribe": true,
+        "birthTopic": "plcnext/axcf2152/status",
+        "birthQos": "1",
+        "birthRetain": "true",
+        "birthPayload": "{\"gateway\":\"online\",\"device\":\"AXC_F_2152\"}",
+        "willTopic": "plcnext/axcf2152/status",
+        "willQos": "1",
+        "willRetain": "true",
+        "willPayload": "{\"gateway\":\"offline\",\"device\":\"AXC_F_2152\"}"
+    },
+    {
+        "id": "ui_tab_scada",
+        "type": "ui_tab",
+        "name": "PLCnext AXC F 2152 SCADA",
+        "icon": "dashboard",
+        "order": 1,
+        "disabled": false,
+        "hidden": false
+    },
+    {
+        "id": "ui_grp_principal",
+        "type": "ui_group",
+        "name": "Panel Principal",
+        "tab": "ui_tab_scada",
+        "order": 1,
+        "disp": true,
+        "width": "6",
+        "collapse": false
+    },
+    {
+        "id": "ui_grp_variables",
+        "type": "ui_group",
+        "name": "Panel de Variables",
+        "tab": "ui_tab_scada",
+        "order": 2,
+        "disp": true,
+        "width": "6",
+        "collapse": false
+    },
+    {
+        "id": "ui_grp_control",
+        "type": "ui_group",
+        "name": "Panel de Control (Con ACK Real)",
+        "tab": "ui_tab_scada",
+        "order": 3,
+        "disp": true,
+        "width": "6",
+        "collapse": false
+    },
+    {
+        "id": "ui_grp_graficas",
+        "type": "ui_group",
+        "name": "Panel de Gráficas y Eventos",
+        "tab": "ui_tab_scada",
+        "order": 4,
+        "disp": true,
+        "width": "6",
+        "collapse": false
+    },
+    {
+        "id": "inj_poll_opcua",
+        "type": "inject",
+        "z": "tab_opcua_proc",
+        "name": "Ciclo Lectura + HB (1s)",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "1",
+        "crontab": "",
+        "once": true,
+        "onceDelay": "2",
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 160,
+        "y": 120,
+        "wires": [
+            [
+                "fn_build_reads",
+                "fn_gw_heartbeat"
+            ]
+        ]
+    },
+    {
+        "id": "fn_build_reads",
+        "type": "function",
+        "z": "tab_opcua_proc",
+        "name": "Preparar lecturas OPC UA",
+        "func": "// NOTA: Verificar los NodeId reales en UA Expert (Etapa 3/4) antes de desplegar en producción.\nconst prefix = \"ns=6;s=Arp.Plc.Eclr/MainInstance.\";\nconst tags = [\n    \"DI_Start\",\n    \"DI_Stop\",\n    \"AI_Sensor_Raw\",\n    \"AI_Sensor_Voltage\",\n    \"AI_Sensor_Percent\",\n    \"DO_Motor\",\n    \"DO_LED\",\n    \"SYS_PLC_Heartbeat\",\n    \"SYS_Gateway_Heartbeat\",\n    \"SYS_Communication_OK\",\n    \"SYS_Motor_Status\",\n    \"SYS_Alarm\",\n    \"SYS_Sensor_Valid\",\n    \"SYS_System_Ready\",\n    \"DIAG_Last_Error\"\n];\n\nfor (const tag of tags) {\n    node.send({\n        topic: prefix + tag,\n        tagName: tag,\n        action: \"read\"\n    });\n}\nreturn null;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 420,
+        "y": 80,
+        "wires": [
+            [
+                "opcua_client_read"
+            ]
+        ]
+    },
+    {
+        "id": "fn_gw_heartbeat",
+        "type": "function",
+        "z": "tab_opcua_proc",
+        "name": "Incrementar Gateway Heartbeat",
+        "func": "let hb = flow.get(\"gw_heartbeat\") || 0;\nhb = (hb + 1) % 4294967295;\nflow.set(\"gw_heartbeat\", hb);\nglobal.set(\"gw_heartbeat\", hb);\n\nmsg.topic = \"ns=6;s=Arp.Plc.Eclr/MainInstance.SYS_Gateway_Heartbeat\";\nmsg.datatype = \"UInt32\";\nmsg.payload = hb;\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 430,
+        "y": 160,
+        "wires": [
+            [
+                "opcua_client_write"
+            ]
+        ]
+    },
+    {
+        "id": "opcua_client_read",
+        "type": "OpcUa-Client",
+        "z": "tab_opcua_proc",
+        "endpoint": "opcua_endpoint_plc",
+        "action": "read",
+        "deadbandtype": "a",
+        "deadbandvalue": 1,
+        "time": 1,
+        "timeUnit": "s",
+        "certificate": "n",
+        "localfile": "",
+        "localkeyfile": "",
+        "securitymode": "None",
+        "securitypolicy": "None",
+        "useTransport": false,
+        "maxChunkCount": 1,
+        "maxMessageSize": 8192,
+        "receiveBufferSize": 8192,
+        "sendBufferSize": 8192,
+        "name": "OPC UA Read PLC",
+        "x": 690,
+        "y": 80,
+        "wires": [
+            [
+                "fn_normalize_telemetry"
+            ],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "opcua_client_write",
+        "type": "OpcUa-Client",
+        "z": "tab_opcua_proc",
+        "endpoint": "opcua_endpoint_plc",
+        "action": "write",
+        "deadbandtype": "a",
+        "deadbandvalue": 1,
+        "time": 1,
+        "timeUnit": "s",
+        "certificate": "n",
+        "localfile": "",
+        "localkeyfile": "",
+        "securitymode": "None",
+        "securitypolicy": "None",
+        "useTransport": false,
+        "maxChunkCount": 1,
+        "maxMessageSize": 8192,
+        "receiveBufferSize": 8192,
+        "sendBufferSize": 8192,
+        "name": "OPC UA Write HB",
+        "x": 690,
+        "y": 160,
+        "wires": [
+            [],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "fn_normalize_telemetry",
+        "type": "function",
+        "z": "tab_opcua_proc",
+        "name": "Normalizar JSON Estándar + Cache",
+        "func": "const cache = flow.get(\"plc_tags\") || {};\nconst tagName = msg.tagName || (msg.topic ? msg.topic.split(\".\").pop() : null);\nif (tagName) {\n    cache[tagName] = msg.payload;\n    flow.set(\"plc_tags\", cache);\n    flow.set(\"last_opcua_ok\", Date.now());\n    global.set(\"plc_state\", cache);\n}\n\n// Emitir paquete consolidado cuando llega SYS_PLC_Heartbeat\nif (tagName !== \"SYS_PLC_Heartbeat\") {\n    return null;\n}\n\nconst telemetry = {\n    device: \"AXC_F_2152\",\n    timestamp: new Date().toISOString(),\n    sensor: {\n        raw: Number(cache.AI_Sensor_Raw || 0),\n        voltage: Number((cache.AI_Sensor_Voltage || 0).toFixed(2)),\n        percentage: Number((cache.AI_Sensor_Percent || 0).toFixed(1)),\n        valid: Boolean(cache.SYS_Sensor_Valid)\n    },\n    inputs: {\n        start: Boolean(cache.DI_Start),\n        stop: Boolean(cache.DI_Stop)\n    },\n    outputs: {\n        motor: Boolean(cache.DO_Motor),\n        led: Boolean(cache.DO_LED)\n    },\n    system: {\n        communication_ok: Boolean(cache.SYS_Communication_OK),\n        alarm: Boolean(cache.SYS_Alarm),\n        ready: Boolean(cache.SYS_System_Ready),\n        heartbeat: Number(cache.SYS_PLC_Heartbeat || 0),\n        gateway_heartbeat: Number(global.get(\"gw_heartbeat\") || 0),\n        last_error: String(cache.DIAG_Last_Error || \"\")\n    }\n};\n\nreturn [\n    { topic: \"plcnext/axcf2152/telemetry\", payload: telemetry },\n    { payload: telemetry }\n];",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 960,
+        "y": 80,
+        "wires": [
+            [
+                "link_out_telemetry"
+            ],
+            [
+                "link_out_ui_data"
+            ]
+        ]
+    },
+    {
+        "id": "link_out_telemetry",
+        "type": "link out",
+        "z": "tab_opcua_proc",
+        "name": "A MQTT Telemetry",
+        "mode": "link",
+        "links": [
+            "link_in_telemetry"
+        ],
+        "x": 1175,
+        "y": 60,
+        "wires": []
+    },
+    {
+        "id": "link_out_ui_data",
+        "type": "link out",
+        "z": "tab_opcua_proc",
+        "name": "A Dashboard UI",
+        "mode": "link",
+        "links": [
+            "link_in_ui_data"
+        ],
+        "x": 1175,
+        "y": 100,
+        "wires": []
+    },
+    {
+        "id": "catch_opcua",
+        "type": "catch",
+        "z": "tab_opcua_proc",
+        "name": "Errores OPC UA",
+        "scope": [
+            "opcua_client_read",
+            "opcua_client_write"
+        ],
+        "uncaught": false,
+        "x": 140,
+        "y": 260,
+        "wires": [
+            [
+                "fn_opcua_error"
+            ]
+        ]
+    },
+    {
+        "id": "fn_opcua_error",
+        "type": "function",
+        "z": "tab_opcua_proc",
+        "name": "Registrar error OPC UA",
+        "func": "global.set(\"opcua_connected\", false);\nreturn {\n    topic: \"plcnext/axcf2152/alarms\",\n    payload: {\n        device: \"AXC_F_2152\",\n        timestamp: new Date().toISOString(),\n        source: \"OPC_UA_GATEWAY\",\n        severity: \"ERROR\",\n        message: msg.error ? msg.error.message : \"OPC UA error\"\n    }\n};",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 260,
+        "wires": [
+            [
+                "debug_opcua_err",
+                "link_out_telemetry"
+            ]
+        ]
+    },
+    {
+        "id": "debug_opcua_err",
+        "type": "debug",
+        "z": "tab_opcua_proc",
+        "name": "Error OPC UA",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "x": 640,
+        "y": 260,
+        "wires": []
+    },
+    {
+        "id": "link_in_telemetry",
+        "type": "link in",
+        "z": "tab_mqtt_ctrl",
+        "name": "De OPC UA Telemetry",
+        "links": [
+            "link_out_telemetry"
+        ],
+        "x": 115,
+        "y": 80,
+        "wires": [
+            [
+                "fn_mqtt_buffer"
+            ]
+        ]
+    },
+    {
+        "id": "fn_mqtt_buffer",
+        "type": "function",
+        "z": "tab_mqtt_ctrl",
+        "name": "Buffer Offline + Publicar MQTT",
+        "func": "const mqttOk = global.get(\"mqtt_connected\") === true;\nlet buffer = flow.get(\"offline_buffer\") || [];\n\nif (!mqttOk) {\n    if (buffer.length >= 100) buffer.shift();\n    buffer.push({ topic: msg.topic, payload: msg.payload });\n    flow.set(\"offline_buffer\", buffer);\n    node.status({ fill: \"yellow\", shape: \"ring\", text: \"Buffered: \" + buffer.length });\n    return null;\n}\n\n// Si recuperó conexión y hay pendientes, vaciar en orden\nif (buffer.length > 0) {\n    for (const item of buffer) {\n        node.send({ topic: item.topic, payload: item.payload, qos: 0, retain: false });\n    }\n    flow.set(\"offline_buffer\", []);\n}\n\nnode.status({ fill: \"green\", shape: \"dot\", text: \"MQTT Online\" });\nmsg.qos = 0;\nmsg.retain = false;\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 330,
+        "y": 80,
+        "wires": [
+            [
+                "mqtt_out_telemetry"
+            ]
+        ]
+    },
+    {
+        "id": "mqtt_out_telemetry",
+        "type": "mqtt out",
+        "z": "tab_mqtt_ctrl",
+        "name": "MQTT Out (Telemetry/Alarms)",
+        "topic": "",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "mqtt_broker_local",
+        "x": 620,
+        "y": 80,
+        "wires": []
+    },
+    {
+        "id": "mqtt_in_cmd",
+        "type": "mqtt in",
+        "z": "tab_mqtt_ctrl",
+        "name": "MQTT In Comandos (QoS 1)",
+        "topic": "plcnext/axcf2152/cmd/#",
+        "qos": "1",
+        "datatype": "json",
+        "broker": "mqtt_broker_local",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 160,
+        "y": 200,
+        "wires": [
+            [
+                "fn_validate_cmd"
+            ]
+        ]
+    },
+    {
+        "id": "fn_validate_cmd",
+        "type": "function",
+        "z": "tab_mqtt_ctrl",
+        "name": "Validar Comando (ID único + TTL + Permisos)",
+        "func": "const p = msg.payload;\nconst topicParts = (msg.topic || \"\").split(\"/\");\nconst cmdAction = topicParts[topicParts.length - 1];\nconst now = Date.now();\n\nfunction makeAck(status, reason) {\n    return {\n        topic: \"plcnext/axcf2152/ack\",\n        qos: 1,\n        retain: false,\n        payload: {\n            device: \"AXC_F_2152\",\n            cmd_id: (p && p.cmd_id) ? p.cmd_id : \"unknown\",\n            action: cmdAction,\n            status: status,\n            reason: reason,\n            timestamp: new Date().toISOString()\n        }\n    };\n}\n\nif (!p || typeof p !== \"object\" || !p.cmd_id) {\n    return [null, makeAck(\"rejected\", \"MISSING_CMD_ID_OR_JSON\")];\n}\n\n// 1. Control de expiración (TTL por defecto 10000 ms)\nconst ttl = Number(p.ttl_ms || 10000);\nconst ts = p.timestamp ? Date.parse(p.timestamp) : now;\nif (isNaN(ts) || (now - ts) > ttl) {\n    return [null, makeAck(\"rejected\", \"COMMAND_EXPIRED\")];\n}\n\n// 2. Evitar comandos duplicados\nlet seen = flow.get(\"seen_cmd_ids\") || [];\nif (seen.includes(p.cmd_id)) {\n    return [null, makeAck(\"rejected\", \"DUPLICATE_CMD_ID\")];\n}\nseen.push(p.cmd_id);\nif (seen.length > 100) seen.shift();\nflow.set(\"seen_cmd_ids\", seen);\n\n// 3. Mapeo a variables OPC UA\nconst map = {\n    \"motor_start\": { node: \"CMD_Motor_Start\", val: true },\n    \"motor_stop\":  { node: \"CMD_Motor_Stop\",  val: true },\n    \"led\":         { node: \"CMD_LED\",         val: Boolean(p.value) },\n    \"reset_alarm\": { node: \"CMD_Reset_Alarm\", val: true }\n};\n\nconst target = map[cmdAction];\nif (!target) {\n    return [null, makeAck(\"rejected\", \"UNKNOWN_COMMAND_TOPIC\")];\n}\n\n// 4. Verificación de permisos básicos para arranque\nconst plcState = global.get(\"plc_state\") || {};\nif (cmdAction === \"motor_start\" && plcState.SYS_Alarm) {\n    return [null, makeAck(\"rejected\", \"PLC_ALARM_ACTIVE\")];\n}\n\nconst opcMsg = {\n    topic: \"ns=6;s=Arp.Plc.Eclr/MainInstance.\" + target.node,\n    datatype: \"Boolean\",\n    payload: target.val,\n    cmd_meta: { cmd_id: p.cmd_id, action: cmdAction }\n};\n\nreturn [opcMsg, null];",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 470,
+        "y": 200,
+        "wires": [
+            [
+                "opcua_write_cmd"
+            ],
+            [
+                "mqtt_out_ack"
+            ]
+        ]
+    },
+    {
+        "id": "opcua_write_cmd",
+        "type": "OpcUa-Client",
+        "z": "tab_mqtt_ctrl",
+        "endpoint": "opcua_endpoint_plc",
+        "action": "write",
+        "deadbandtype": "a",
+        "deadbandvalue": 1,
+        "time": 1,
+        "timeUnit": "s",
+        "certificate": "n",
+        "localfile": "",
+        "localkeyfile": "",
+        "securitymode": "None",
+        "securitypolicy": "None",
+        "useTransport": false,
+        "maxChunkCount": 1,
+        "maxMessageSize": 8192,
+        "receiveBufferSize": 8192,
+        "sendBufferSize": 8192,
+        "name": "OPC UA Write Comando",
+        "x": 770,
+        "y": 170,
+        "wires": [
+            [
+                "fn_ack_executed"
+            ],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "fn_ack_executed",
+        "type": "function",
+        "z": "tab_mqtt_ctrl",
+        "name": "Generar ACK Real de Ejecución",
+        "func": "const meta = msg.cmd_meta || { cmd_id: \"unknown\", action: \"unknown\" };\nreturn {\n    topic: \"plcnext/axcf2152/ack\",\n    qos: 1,\n    retain: false,\n    payload: {\n        device: \"AXC_F_2152\",\n        cmd_id: meta.cmd_id,\n        action: meta.action,\n        status: \"executed\",\n        reason: \"OPCUA_WRITE_OK\",\n        timestamp: new Date().toISOString()\n    }\n};",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1030,
+        "y": 170,
+        "wires": [
+            [
+                "mqtt_out_ack",
+                "link_out_ack_ui"
+            ]
+        ]
+    },
+    {
+        "id": "mqtt_out_ack",
+        "type": "mqtt out",
+        "z": "tab_mqtt_ctrl",
+        "name": "MQTT Out ACK",
+        "topic": "",
+        "qos": "1",
+        "retain": "false",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "mqtt_broker_local",
+        "x": 1020,
+        "y": 240,
+        "wires": []
+    },
+    {
+        "id": "link_out_ack_ui",
+        "type": "link out",
+        "z": "tab_mqtt_ctrl",
+        "name": "ACK a UI",
+        "mode": "link",
+        "links": [
+            "link_in_ack_ui"
+        ],
+        "x": 1225,
+        "y": 170,
+        "wires": []
+    },
+    {
+        "id": "status_mqtt",
+        "type": "status",
+        "z": "tab_mqtt_ctrl",
+        "name": "Estado Broker MQTT",
+        "scope": [
+            "mqtt_out_telemetry",
+            "mqtt_in_cmd"
+        ],
+        "x": 150,
+        "y": 320,
+        "wires": [
+            [
+                "fn_track_mqtt_status"
+            ]
+        ]
+    },
+    {
+        "id": "fn_track_mqtt_status",
+        "type": "function",
+        "z": "tab_mqtt_ctrl",
+        "name": "Actualizar estado MQTT",
+        "func": "const connected = (msg.status && msg.status.fill === \"green\");\nglobal.set(\"mqtt_connected\", connected);\nreturn null;",
+        "outputs": 0,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 400,
+        "y": 320,
+        "wires": []
+    },
+    {
+        "id": "link_in_ui_data",
+        "type": "link in",
+        "z": "tab_scada_ui",
+        "name": "Datos Telemetría UI",
+        "links": [
+            "link_out_ui_data"
+        ],
+        "x": 95,
+        "y": 140,
+        "wires": [
+            [
+                "fn_split_ui"
+            ]
+        ]
+    },
+    {
+        "id": "fn_split_ui",
+        "type": "function",
+        "z": "tab_scada_ui",
+        "name": "Distribuir a Paneles SCADA",
+        "func": "const t = msg.payload;\nconst mqttOk = global.get(\"mqtt_connected\") === true;\n\nreturn [\n    { payload: t.system.communication_ok ? \"ONLINE\" : \"DESCONECTADO\" },\n    { payload: mqttOk ? \"CONECTADO\" : \"DESCONECTADO\" },\n    { payload: t.outputs.motor ? \"EN MARCHA\" : \"DETENIDO\" },\n    { payload: t.system.alarm ? \"ALARMA ACTIVA\" : \"NORMAL\" },\n    { payload: t.sensor.voltage },\n    { payload: t.sensor.percentage },\n    { payload: \"Start: \" + t.inputs.start + \" | Stop: \" + t.inputs.stop },\n    { payload: \"PLC HB: \" + t.system.heartbeat + \" | GW HB: \" + t.system.gateway_heartbeat },\n    { topic: \"Voltaje (V)\", payload: t.sensor.voltage },\n    { topic: \"Porcentaje (%)\", payload: t.sensor.percentage },\n    { topic: \"Motor (0/1)\", payload: t.outputs.motor ? 1 : 0 }\n];",
+        "outputs": 11,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 300,
+        "y": 140,
+        "wires": [
+            [
+                "ui_txt_plc"
+            ],
+            [
+                "ui_txt_mqtt"
+            ],
+            [
+                "ui_txt_motor"
+            ],
+            [
+                "ui_txt_alarm"
+            ],
+            [
+                "ui_gauge_volt"
+            ],
+            [
+                "ui_gauge_pct"
+            ],
+            [
+                "ui_txt_inputs"
+            ],
+            [
+                "ui_txt_hb"
+            ],
+            [
+                "ui_chart_volt"
+            ],
+            [
+                "ui_chart_pct"
+            ],
+            [
+                "ui_chart_motor"
+            ]
+        ]
+    },
+    {
+        "id": "ui_txt_plc",
+        "type": "ui_text",
+        "z": "tab_scada_ui",
+        "group": "ui_grp_principal",
+        "order": 1,
+        "width": 0,
+        "height": 0,
+        "name": "Estado PLC / OPC UA",
+        "label": "PLC / OPC UA:",
+        "format": "{{msg.payload}}",
+        "layout": "row-spread",
+        "x": 620,
+        "y": 20,
+        "wires": []
+    },
+    {
+        "id": "ui_txt_mqtt",
+        "type": "ui_text",
+        "z": "tab_scada_ui",
+        "group": "ui_grp_principal",
+        "order": 2,
+        "width": 0,
+        "height": 0,
+        "name": "Estado MQTT",
+        "label": "Broker MQTT:",
+        "format": "{{msg.payload}}",
+        "layout": "row-spread",
+        "x": 600,
+        "y": 55,
+        "wires": []
+    },
+    {
+        "id": "ui_txt_motor",
+        "type": "ui_text",
+        "z": "tab_scada_ui",
+        "group": "ui_grp_principal",
+        "order": 3,
+        "width": 0,
+        "height": 0,
+        "name": "Estado Motor",
+        "label": "Motor:",
+        "format": "{{msg.payload}}",
+        "layout": "row-spread",
+        "x": 600,
+        "y": 90,
+        "wires": []
+    },
+    {
+        "id": "ui_txt_alarm",
+        "type": "ui_text",
+        "z": "tab_scada_ui",
+        "group": "ui_grp_principal",
+        "order": 4,
+        "width": 0,
+        "height": 0,
+        "name": "Estado Alarma",
+        "label": "Alarma:",
+        "format": "{{msg.payload}}",
+        "layout": "row-spread",
+        "x": 600,
+        "y": 125,
+        "wires": []
+    },
+    {
+        "id": "ui_gauge_volt",
+        "type": "ui_gauge",
+        "z": "tab_scada_ui",
+        "name": "Voltaje Sensor",
+        "group": "ui_grp_variables",
+        "order": 1,
+        "width": 0,
+        "height": 0,
+        "gtype": "gage",
+        "title": "Sensor 0-10 V",
+        "label": "V",
+        "format": "{{value}}",
+        "min": 0,
+        "max": "10",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "7",
+        "seg2": "9",
+        "x": 600,
+        "y": 165,
+        "wires": []
+    },
+    {
+        "id": "ui_gauge_pct",
+        "type": "ui_gauge",
+        "z": "tab_scada_ui",
+        "name": "Porcentaje Sensor",
+        "group": "ui_grp_variables",
+        "order": 2,
+        "width": 0,
+        "height": 0,
+        "gtype": "gage",
+        "title": "Nivel (%)",
+        "label": "%",
+        "format": "{{value}}",
+        "min": 0,
+        "max": "100",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "70",
+        "seg2": "90",
+        "x": 610,
+        "y": 200,
+        "wires": []
+    },
+    {
+        "id": "ui_txt_inputs",
+        "type": "ui_text",
+        "z": "tab_scada_ui",
+        "group": "ui_grp_variables",
+        "order": 3,
+        "width": 0,
+        "height": 0,
+        "name": "Entradas Digitales",
+        "label": "Entradas:",
+        "format": "{{msg.payload}}",
+        "layout": "row-spread",
+        "x": 610,
+        "y": 235,
+        "wires": []
+    },
+    {
+        "id": "ui_txt_hb",
+        "type": "ui_text",
+        "z": "tab_scada_ui",
+        "group": "ui_grp_variables",
+        "order": 4,
+        "width": 0,
+        "height": 0,
+        "name": "Heartbeats",
+        "label": "Heartbeats:",
+        "format": "{{msg.payload}}",
+        "layout": "row-spread",
+        "x": 590,
+        "y": 270,
+        "wires": []
+    },
+    {
+        "id": "ui_chart_volt",
+        "type": "ui_chart",
+        "z": "tab_scada_ui",
+        "name": "Histórico Voltaje",
+        "group": "ui_grp_graficas",
+        "order": 1,
+        "width": 0,
+        "height": 0,
+        "label": "Histórico Voltaje (V)",
+        "chartType": "line",
+        "legend": "false",
+        "xformat": "HH:mm:ss",
+        "interpolate": "linear",
+        "nodata": "Sin datos",
+        "ymin": "0",
+        "ymax": "10",
+        "removeOlder": "10",
+        "removeOlderUnit": "60",
+        "outputs": 1,
+        "x": 600,
+        "y": 310,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "ui_chart_pct",
+        "type": "ui_chart",
+        "z": "tab_scada_ui",
+        "name": "Histórico Porcentaje",
+        "group": "ui_grp_graficas",
+        "order": 2,
+        "width": 0,
+        "height": 0,
+        "label": "Evolución Porcentaje (%)",
+        "chartType": "line",
+        "legend": "false",
+        "xformat": "HH:mm:ss",
+        "interpolate": "linear",
+        "nodata": "Sin datos",
+        "ymin": "0",
+        "ymax": "100",
+        "removeOlder": "10",
+        "removeOlderUnit": "60",
+        "outputs": 1,
+        "x": 620,
+        "y": 350,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "ui_chart_motor",
+        "type": "ui_chart",
+        "z": "tab_scada_ui",
+        "name": "Estado Motor",
+        "group": "ui_grp_graficas",
+        "order": 3,
+        "width": 0,
+        "height": 0,
+        "label": "Estado Motor (0/1)",
+        "chartType": "line",
+        "legend": "false",
+        "xformat": "HH:mm:ss",
+        "interpolate": "step",
+        "nodata": "Sin datos",
+        "ymin": "0",
+        "ymax": "1",
+        "removeOlder": "10",
+        "removeOlderUnit": "60",
+        "outputs": 1,
+        "x": 600,
+        "y": 390,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "ui_btn_start",
+        "type": "ui_button",
+        "z": "tab_scada_ui",
+        "name": "Arranque Remoto",
+        "group": "ui_grp_control",
+        "order": 1,
+        "width": 0,
+        "height": 0,
+        "passthru": false,
+        "label": "ARRANQUE REMOTO",
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "#2e7d32",
+        "icon": "play_arrow",
+        "payload": "motor_start",
+        "payloadType": "str",
+        "topic": "plcnext/axcf2152/cmd/motor_start",
+        "x": 150,
+        "y": 460,
+        "wires": [
+            [
+                "fn_build_ui_cmd"
+            ]
+        ]
+    },
+    {
+        "id": "ui_btn_stop",
+        "type": "ui_button",
+        "z": "tab_scada_ui",
+        "name": "Parada Remota",
+        "group": "ui_grp_control",
+        "order": 2,
+        "width": 0,
+        "height": 0,
+        "passthru": false,
+        "label": "PARADA REMOTA",
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "#c62828",
+        "icon": "stop",
+        "payload": "motor_stop",
+        "payloadType": "str",
+        "topic": "plcnext/axcf2152/cmd/motor_stop",
+        "x": 140,
+        "y": 500,
+        "wires": [
+            [
+                "fn_build_ui_cmd"
+            ]
+        ]
+    },
+    {
+        "id": "ui_sw_led",
+        "type": "ui_switch",
+        "z": "tab_scada_ui",
+        "name": "Control LED",
+        "label": "LED Indicador",
+        "tooltip": "",
+        "group": "ui_grp_control",
+        "order": 3,
+        "width": 0,
+        "height": 0,
+        "passthru": false,
+        "decouple": "true",
+        "topic": "plcnext/axcf2152/cmd/led",
+        "style": "",
+        "onvalue": "true",
+        "onvalueType": "bool",
+        "onicon": "",
+        "oncolor": "",
+        "offvalue": "false",
+        "offvalueType": "bool",
+        "officon": "",
+        "offcolor": "",
+        "x": 130,
+        "y": 540,
+        "wires": [
+            [
+                "fn_build_ui_cmd"
+            ]
+        ]
+    },
+    {
+        "id": "ui_btn_reset",
+        "type": "ui_button",
+        "z": "tab_scada_ui",
+        "name": "Reset Alarma",
+        "group": "ui_grp_control",
+        "order": 4,
+        "width": 0,
+        "height": 0,
+        "passthru": false,
+        "label": "RESTABLECER ALARMA",
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "#ef6c00",
+        "icon": "refresh",
+        "payload": "reset_alarm",
+        "payloadType": "str",
+        "topic": "plcnext/axcf2152/cmd/reset_alarm",
+        "x": 140,
+        "y": 580,
+        "wires": [
+            [
+                "fn_build_ui_cmd"
+            ]
+        ]
+    },
+    {
+        "id": "fn_build_ui_cmd",
+        "type": "function",
+        "z": "tab_scada_ui",
+        "name": "Empaquetar Comando + ID Único",
+        "func": "const cmdId = \"ui_\" + Date.now() + \"_\" + Math.floor(Math.random() * 1000);\nconst payload = {\n    cmd_id: cmdId,\n    timestamp: new Date().toISOString(),\n    ttl_ms: 10000,\n    value: msg.payload\n};\n\nreturn [\n    { topic: msg.topic, qos: 1, retain: false, payload: payload },\n    { payload: \"Enviado (\" + cmdId + \") esperando ACK del PLC...\" }\n];",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 420,
+        "y": 520,
+        "wires": [
+            [
+                "mqtt_out_ui_cmd"
+            ],
+            [
+                "ui_txt_ack"
+            ]
+        ]
+    },
+    {
+        "id": "mqtt_out_ui_cmd",
+        "type": "mqtt out",
+        "z": "tab_scada_ui",
+        "name": "Enviar Comando MQTT (QoS 1)",
+        "topic": "",
+        "qos": "1",
+        "retain": "false",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "mqtt_broker_local",
+        "x": 730,
+        "y": 490,
+        "wires": []
+    },
+    {
+        "id": "link_in_ack_ui",
+        "type": "link in",
+        "z": "tab_scada_ui",
+        "name": "ACK desde PLC",
+        "links": [
+            "link_out_ack_ui"
+        ],
+        "x": 435,
+        "y": 580,
+        "wires": [
+            [
+                "fn_format_ack_ui"
+            ]
+        ]
+    },
+    {
+        "id": "fn_format_ack_ui",
+        "type": "function",
+        "z": "tab_scada_ui",
+        "name": "Formatear ACK Real",
+        "func": "const a = msg.payload;\nreturn { payload: `${a.action}: ${a.status.toUpperCase()} (${a.reason}) [${a.cmd_id}]` };",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 630,
+        "y": 580,
+        "wires": [
+            [
+                "ui_txt_ack"
+            ]
+        ]
+    },
+    {
+        "id": "ui_txt_ack",
+        "type": "ui_text",
+        "z": "tab_scada_ui",
+        "group": "ui_grp_control",
+        "order": 5,
+        "width": 0,
+        "height": 0,
+        "name": "Confirmación Real",
+        "label": "Estado Comando:",
+        "format": "{{msg.payload}}",
+        "layout": "row-spread",
+        "x": 860,
+        "y": 560,
+        "wires": []
+    }
+]
